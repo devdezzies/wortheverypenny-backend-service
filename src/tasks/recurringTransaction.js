@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import Transaction from '../models/transaction.js';
+import User from '../models/user.js';
 import moment from 'moment-timezone';
 
 moment.tz.setDefault('Asia/Jakarta');
@@ -9,6 +10,7 @@ const recurringTransaction = async () => {
         const recurringTransactions = await Transaction.find({ recurring: true });
         for (const transaction of recurringTransactions) {
             if (moment().isSameOrAfter(moment(transaction.nextOccurrence))) {
+                
                 const newTransaction = new Transaction({
                     user: transaction.user,
                     date: moment().tz('Asia/Jakarta').toDate(),
@@ -18,16 +20,20 @@ const recurringTransaction = async () => {
                     type: transaction.type,
                     description: transaction.description,
                     category: transaction.category,
-                    recurring: transaction.recurring,
+                    recurring: false,
                     recurrenceInterval: transaction.recurrenceInterval,
-                    nextOccurrence: calculateNextOccurrence(transaction.recurrenceInterval, transaction.nextOccurrence),
+                    nextOccurrence: null,
                     currency: transaction.currency,
                     source: transaction.source,
                 });
-
                 await newTransaction.save();
 
-                transaction.nextOccurrence = newTransaction.nextOccurrence;
+                const userOwner = await User.findById(transaction.user);
+                userOwner.transactions.unshift(newTransaction._id);
+                await userOwner.save();
+                
+                const newNextOccurrence = calculateNextOccurrence(transaction.recurrenceInterval, transaction.nextOccurrence);
+                transaction.nextOccurrence = newNextOccurrence;
                 await transaction.save();
             }
         }
@@ -41,7 +47,6 @@ function calculateNextOccurrence(interval, currentDate) {
     switch (interval) {
         case 'daily':
             date.setDate(date.getDate() + 1);
-            return moment(date).tz('Asia/Jakarta').toDate();
             break;
         case 'weekly':
             date.setDate(date.getDate() + 7);
@@ -55,7 +60,7 @@ function calculateNextOccurrence(interval, currentDate) {
         default:
             throw new Error('Invalid recurrence interval');
     }
-    return date;
+    return moment(date).tz('Asia/Jakarta').toDate();
 }
 
 cron.schedule('0 0 * * *', () => {
